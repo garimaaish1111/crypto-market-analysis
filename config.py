@@ -65,7 +65,7 @@ STRESS_BENCHMARK = "S&P 500"
 #
 # Set CRYPTO_MODE = "live" to re-enable, ideally with a free demo key.
 # Macro, sentiment and on-chain feeds are unaffected and remain live.
-CRYPTO_MODE = "simulated"   # "live" or "simulated"
+CRYPTO_MODE = "live"   # "live" or "simulated"
 
 # CoinGecko free tier is heavily rate limited. A free "demo" key raises the
 # ceiling substantially and takes two minutes to create at
