@@ -344,6 +344,18 @@ with tabs[3]:
         "share — a Friday-to-Monday move spans the same three days for each."
     )
 
+    # A rate-limited provider returns the column empty rather than failing, and
+    # correlation needs every column on the same day. Dropping the dead asset
+    # keeps the rest of the matrix usable, but the reader has to be told which
+    # one is missing rather than silently seeing a smaller table.
+    excluded = [c for c in data.macro_prices.columns if c not in returns.columns]
+    if excluded:
+        st.warning(
+            f"Excluded from this analysis: **{', '.join(excluded)}** — the feed returned "
+            "too few observations over this window to correlate. Every other asset below "
+            "is unaffected. Try **Refresh data** in the sidebar to refetch."
+        )
+
     method = st.radio(
         "Correlation method",
         ["pearson", "spearman"],
@@ -381,19 +393,25 @@ with tabs[3]:
 
     st.markdown("---")
     st.write("**Rolling correlation**")
-    rc1, rc2 = st.columns(2)
-    macro_choice = rc1.selectbox("Compare against", list(data.macro_prices.columns), index=0)
-    window = rc2.select_slider(
-        "Rolling window (days)", options=list(config.CORRELATION_WINDOWS), value=30
-    )
-    if symbol in returns.columns and macro_choice in returns.columns:
-        series = correlation.rolling_correlation(returns, symbol, macro_choice, window)
-        st.plotly_chart(charts.rolling_corr_chart(series, symbol, macro_choice), width="stretch")
-        b = correlation.beta(returns, symbol, macro_choice)
-        st.caption(
-            f"β of {symbol} to {macro_choice}: **{b:.2f}**. Above 1 means {symbol} "
-            f"amplifies {macro_choice}'s moves rather than cushioning them."
+    # Offer only assets that survived alignment — listing an excluded one would
+    # leave the user picking an option that silently renders nothing.
+    comparable = [c for c in data.macro_prices.columns if c in returns.columns]
+    if not comparable:
+        st.info("No traditional asset has enough overlapping data to plot against right now.")
+    else:
+        rc1, rc2 = st.columns(2)
+        macro_choice = rc1.selectbox("Compare against", comparable, index=0)
+        window = rc2.select_slider(
+            "Rolling window (days)", options=list(config.CORRELATION_WINDOWS), value=30
         )
+        if symbol in returns.columns:
+            series = correlation.rolling_correlation(returns, symbol, macro_choice, window)
+            st.plotly_chart(charts.rolling_corr_chart(series, symbol, macro_choice), width="stretch")
+            b = correlation.beta(returns, symbol, macro_choice)
+            st.caption(
+                f"β of {symbol} to {macro_choice}: **{b:.2f}**. Above 1 means {symbol} "
+                f"amplifies {macro_choice}'s moves rather than cushioning them."
+            )
 
 # --------------------------------------------------------------------------- #
 # Tab 5 — Forecast

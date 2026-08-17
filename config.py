@@ -107,6 +107,11 @@ FORECAST_HORIZON = 30         # days ahead for the ARIMA forecast
 FORECAST_TEST_FRACTION = 0.15
 STRESS_QUANTILE = 0.10        # worst 10% of benchmark days = "stressed"
 
+# Correlation needs every column populated on the same day, so one dead feed can
+# empty the whole sample. A column carrying less than this fraction of the best-
+# covered column's observations is dropped instead of being allowed to do that.
+MIN_CORRELATION_COVERAGE = 0.5
+
 
 def ma_windows(n_obs: int) -> tuple[int, int]:
     """

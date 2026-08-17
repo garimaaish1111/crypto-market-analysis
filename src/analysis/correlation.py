@@ -39,10 +39,44 @@ def _to_returns(prices: pd.DataFrame, yield_columns: set[str] | None = None) -> 
     return pd.DataFrame(out, index=prices.index).dropna(how="all")
 
 
+def drop_thin_columns(
+    returns: pd.DataFrame, min_coverage: float = config.MIN_CORRELATION_COVERAGE
+) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Remove columns too sparsely populated to correlate, before rows are dropped.
+
+    Returns ``(kept_frame, dropped_column_names)``.
+
+    This guards the failure mode that matters in practice: a single provider
+    outage. When yfinance rate-limits one ticker it still returns the frame, just
+    with that column entirely NaN — and because correlation needs every column
+    populated on the same day, the row-wise ``dropna`` below would then discard
+    *every* row and leave an empty sample. One rate-limited commodity would take
+    the whole correlation tab down with it.
+
+    Dropping the unusable column first keeps the other ten assets correlating
+    normally, which is the same fail-open principle the data loaders follow.
+    Coverage is measured against the best-populated column rather than the row
+    count, so a short history is not mistaken for a broken feed.
+    """
+    if returns.empty:
+        return returns, []
+
+    counts = returns.notna().sum()
+    best = int(counts.max()) if len(counts) else 0
+    if best == 0:
+        return returns.iloc[:, :0], list(returns.columns)
+
+    keep = [c for c in returns.columns if counts[c] >= best * min_coverage]
+    dropped = [c for c in returns.columns if c not in keep]
+    return returns[keep], dropped
+
+
 def align_returns(crypto_prices: pd.DataFrame, macro_prices: pd.DataFrame) -> pd.DataFrame:
     """Join crypto and macro prices on common dates, then convert to returns."""
     combined = crypto_prices.join(macro_prices, how="inner")
-    return _to_returns(combined).dropna()
+    returns, _ = drop_thin_columns(_to_returns(combined))
+    return returns.dropna()
 
 
 def correlation_matrix(returns: pd.DataFrame, method: str = "pearson") -> pd.DataFrame:

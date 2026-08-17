@@ -416,3 +416,54 @@ it is simply found last.
 launcher imports the core packages and reinstalls from `requirements.txt` only
 if one is missing. That costs about a second per start and means a newly added
 requirement never surfaces as an ImportError halfway through startup.
+
+---
+
+## 18. One rate-limited ticker emptied the entire correlation tab
+
+**Was:** on the deployed app the Correlation tab rendered a blank heatmap and a
+crypto-to-macro table reading `None` in every cell, while every other tab worked
+normally and the sidebar reported all four feeds live.
+
+The cause was a partial provider failure, not a total one. When yfinance rate
+limits a single ticker it still returns the frame — that one column just comes
+back entirely NaN. `_fetch_macro` ends with `dropna(how="all")`, which only drops
+rows where *every* column is NaN, so all 367 rows survived with a dead `Gold`
+column among the live ones. `align_returns` then ended with a bare `.dropna()`,
+which is `how="any"`: every row contained the NaN from that one column, so every
+row was discarded and the returns frame came back with **0 rows**. Correlating an
+empty frame yields all-NaN, which is the blank heatmap and the wall of `None`.
+
+The Streamlit Cloud log for that run recorded exactly this:
+
+```
+1 Failed download:
+['GC=F']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+```
+
+So a single rate-limited commodity took down the correlation analysis for all
+eleven assets, and did it silently — nothing in the UI said a feed was missing,
+because as far as the loader was concerned the fetch had succeeded.
+
+**Now:** `correlation.drop_thin_columns()` removes under-populated columns
+*before* the row-wise `dropna`, so a dead feed costs one asset instead of the
+whole sample. Coverage is measured against the best-populated column rather than
+the raw row count, so a genuinely short history is not mistaken for a broken
+feed; the threshold is `config.MIN_CORRELATION_COVERAGE` (0.5).
+
+Verified against live data by simulating the failure at the loader:
+
+| Scenario | Before | After |
+|---|---|---|
+| All feeds healthy | 250 rows × 11 cols | 250 rows × 11 cols (unchanged) |
+| Gold rate-limited | **0 rows — tab blank** | 250 rows × 10 cols |
+| Gold + Crude Oil dead | **0 rows — tab blank** | 250 rows × 9 cols |
+| Gold returns 10 points | **0 rows — tab blank** | 250 rows × 10 cols |
+| Every macro feed dead | **0 rows — tab blank** | 250 rows × 6 cols (crypto-to-crypto still correlates) |
+
+**And it now says so.** Following the same principle as the live-vs-sample
+badges, a dropped asset is named in a warning above the matrix rather than
+quietly vanishing from a smaller table. The *Compare against* picker for the
+rolling-correlation chart is also built from the surviving columns, because
+offering an excluded asset left the user selecting an option that rendered
+nothing at all.
