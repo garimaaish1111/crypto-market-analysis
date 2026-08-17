@@ -1,0 +1,14 @@
+# Theme for the Cryptocurrency Market Analysis System.
+#
+# This must match config.py's THEME constant. To switch to light mode, set
+# THEME = "light" in config.py and change the two marked lines below.
+
+[theme]
+base = "dark"                      # <-- light mode: "light"
+primaryColor = "#00BCD4"
+backgroundColor = "#212121"        # <-- light mode: "#FFFFFF"
+secondaryBackgroundColor = "#2B2B2B"
+textColor = "#ECEFF1"              # <-- light mode: "#212121"
+
+[browser]
+gatherUsageStats = false
