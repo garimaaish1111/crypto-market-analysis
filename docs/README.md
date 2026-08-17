@@ -4,7 +4,7 @@ Written deliverables for the Cryptocurrency Market Analysis System.
 
 | File | What it is |
 |---|---|
-| `Cryptocurrency_Market_Analysis_System_SRS.docx` | Software Requirements Specification — functional and non-functional requirements, data sources, constraints |
+| `Cryptocurrency_Market_Analysis_System_SRS.docx` | Software Requirements Specification — functional and non-functional requirements, data sources, constraints, and an object-oriented analysis/design appendix (use-case, class, and sequence diagrams) |
 | `Cryptocurrency_Market_Analysis_System_Report.docx` | Project report — methodology, implementation, results, limitations |
 
 Elsewhere in the repository:
