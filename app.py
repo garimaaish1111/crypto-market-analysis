@@ -169,22 +169,18 @@ if st.sidebar.button("Refresh data", width="stretch"):
 data = get_data(days)
 symbol = st.sidebar.selectbox("Primary asset", data.symbols, index=0)
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("Data sources")
-for feed, source in data.sources.items():
-    icon = {
-        "live": "🟢", "cached": "🟢", "simulated": "🔵",
-        "mixed": "🟡", "sample": "🟠",
-    }.get(source, "⚪")
-    st.sidebar.write(f"{icon} {feed}: **{source}**")
+# The per-feed status list used to live here. It was the first thing a reader
+# saw, and a column of five "cached" labels is not a useful opening statement
+# about a market analysis tool. The Datasets tab presents the same information
+# with far more context — row counts, date ranges, previews, cleaning reports
+# and a live connection test — so the sidebar defers to it and only speaks up
+# when something is actually wrong (see the banner below).
 
 # A deliberate mode and an unplanned failure produce the same data but mean
 # different things, so they are surfaced differently: the first is stated once
 # and calmly, the second is flagged.
 simulated_by_choice = {f: s for f, s in data.sources.items() if s == "simulated"}
 unexpected = {f: s for f, s in data.sources.items() if s in ("mixed", "sample")}
-# "cached" is a success: real provider data, read from disk rather than refetched.
-cached_feeds = {f: s for f, s in data.sources.items() if s == "cached"}
 
 # Convenient handles
 crypto_df = data.crypto_frames[symbol]
