@@ -172,7 +172,10 @@ symbol = st.sidebar.selectbox("Primary asset", data.symbols, index=0)
 st.sidebar.markdown("---")
 st.sidebar.subheader("Data sources")
 for feed, source in data.sources.items():
-    icon = {"live": "🟢", "simulated": "🔵", "mixed": "🟡", "sample": "🟠"}.get(source, "⚪")
+    icon = {
+        "live": "🟢", "cached": "🟢", "simulated": "🔵",
+        "mixed": "🟡", "sample": "🟠",
+    }.get(source, "⚪")
     st.sidebar.write(f"{icon} {feed}: **{source}**")
 
 # A deliberate mode and an unplanned failure produce the same data but mean
@@ -180,6 +183,8 @@ for feed, source in data.sources.items():
 # and calmly, the second is flagged.
 simulated_by_choice = {f: s for f, s in data.sources.items() if s == "simulated"}
 unexpected = {f: s for f, s in data.sources.items() if s in ("mixed", "sample")}
+# "cached" is a success: real provider data, read from disk rather than refetched.
+cached_feeds = {f: s for f, s in data.sources.items() if s == "cached"}
 
 # Convenient handles
 crypto_df = data.crypto_frames[symbol]

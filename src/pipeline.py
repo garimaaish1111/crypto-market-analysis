@@ -14,7 +14,7 @@ from typing import Callable
 import pandas as pd
 
 import config
-from src.data import crypto, fx, macro, preprocessing, sentiment
+from src.data import cache, crypto, fx, macro, preprocessing, sentiment
 
 
 @dataclass
@@ -60,6 +60,22 @@ class MarketData:
         return list(dict.fromkeys(self.crypto_errors.values()))
 
 
+def _label(source: str, keys: list[str]) -> str:
+    """
+    Refine a loader's source label using whether the data came off disk.
+
+    A loader reports ``"live"`` when the value it returned originated from a
+    real fetch. That is true of a cached response too — it was fetched, just not
+    now — so calling both "live" leaves the interface claiming a working
+    connection while a connection test fails, which is what a reader running
+    offline sees. ``"cached"`` says the honest thing: real provider data, read
+    from disk, not fetched this run.
+    """
+    if source != "live":
+        return source
+    return "cached" if any(cache.was_cached(k) for k in keys) else "live"
+
+
 def load_market_data(
     days: int = config.DEFAULT_DAYS,
     progress: Callable[[int, int, str], None] | None = None,
@@ -73,6 +89,10 @@ def load_market_data(
     spinner for half a minute and users conclude it has hung.
     """
     reports: list[preprocessing.CleaningReport] = []
+
+    # Track which feeds are answered from the shipped cache rather than fetched,
+    # so the interface can say which it was instead of calling both "live".
+    cache.begin_load()
 
     frames, crypto_src, per_coin, crypto_errs = crypto.load_all_crypto(days, progress=progress)
 
@@ -116,10 +136,14 @@ def load_market_data(
         fx_rate=fx_series,
         reports=reports,
         sources={
-            "Crypto (CoinGecko)": crypto_src,
-            "Macro (Yahoo Finance)": macro_src,
-            "Sentiment (Fear & Greed)": sent_src,
-            "On-chain (Blockchain.info)": onchain_src,
-            f"FX (USD/{config.CURRENCY_LABEL})": fx_src,
+            "Crypto (CoinGecko)": _label(crypto_src, [
+                f"crypto:{cid}:{days}:{config.CURRENCY}" for cid in config.CRYPTO_ASSETS
+            ]),
+            "Macro (Yahoo Finance)": _label(macro_src, [f"macro:{days}"]),
+            "Sentiment (Fear & Greed)": _label(sent_src, [f"fng:{days}"]),
+            "On-chain (Blockchain.info)": _label(onchain_src, [f"onchain:{days}"]),
+            f"FX (USD/{config.CURRENCY_LABEL})": _label(
+                fx_src, [f"fx:{config.FX_TICKER}:{days}"]
+            ),
         },
     )

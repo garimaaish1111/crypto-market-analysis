@@ -17,6 +17,24 @@ from typing import Any, Callable
 import config
 
 
+# Keys answered from disk during the current load. The interface needs this to
+# tell "fetched from the provider just now" apart from "read from the cache that
+# ships with this project". Both are real data, but only one says anything about
+# the network right now — and showing a feed as "live" while a connection test
+# fails reads as a contradiction to anyone running offline.
+_served_from_disk: set[str] = set()
+
+
+def begin_load() -> None:
+    """Reset the per-load record of which keys came from disk."""
+    _served_from_disk.clear()
+
+
+def was_cached(key: str) -> bool:
+    """True if ``key`` was answered from disk during the current load."""
+    return key in _served_from_disk
+
+
 def _cache_path(key: str) -> Path:
     digest = hashlib.md5(key.encode()).hexdigest()
     return config.CACHE_DIR / f"{digest}.pkl"
@@ -92,6 +110,7 @@ def cached(
     """
     hit = load(key, ttl_hours)
     if hit is not None:
+        _served_from_disk.add(key)
         return hit
 
     value = producer()
@@ -102,6 +121,7 @@ def cached(
     # The producer fell back. Prefer a real-but-expired response if one exists.
     stale = load(key, ttl_hours=float("inf"))
     if stale is not None:
+        _served_from_disk.add(key)
         return stale
     return value
 

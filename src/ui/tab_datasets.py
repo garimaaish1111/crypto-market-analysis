@@ -75,7 +75,12 @@ FEED_PANELS = [
 ]
 
 _BADGE = {
-    "live": ("🟢", "Live", "Fetched successfully from the provider."),
+    "live": ("🟢", "Live", "Fetched from the provider during this session."),
+    "cached": (
+        "🟢", "Cached",
+        "Real provider data, read from the cache distributed with this project "
+        "rather than fetched just now. The date range below is what it covers.",
+    ),
     "simulated": ("🔵", "Simulated", "Generated deliberately — CRYPTO_MODE is set to simulated."),
     "mixed": ("🟡", "Mixed", "Some assets fetched, others fell back to generated data."),
     "sample": ("🟠", "Sample", "The live call failed; generated data is standing in."),
@@ -134,6 +139,11 @@ def _render_connection_control(panel: dict) -> None:
             st.success(f"{result.message}{suffix}")
         else:
             st.error(f"{result.message}{suffix}")
+            st.caption(
+                "This tests the connection **right now**. The data above is "
+                "unaffected — it is real provider data already on disk, which is "
+                "why the panel still reports a status and a date range."
+            )
 
 
 def _render_panel(panel: dict, data, days: int) -> None:
@@ -219,9 +229,19 @@ def render(data, days: int) -> None:
         "asserted."
     )
 
-    live = sum(1 for p in FEED_PANELS if data.sources.get(p["source_label"]) == "live")
+    real = sum(
+        1 for p in FEED_PANELS
+        if data.sources.get(p["source_label"]) in ("live", "cached")
+    )
+    fetched_now = sum(
+        1 for p in FEED_PANELS if data.sources.get(p["source_label"]) == "live"
+    )
     summary = st.columns(4)
-    summary[0].metric("Feeds live", f"{live} of {len(FEED_PANELS)}")
+    summary[0].metric(
+        "Feeds on real data", f"{real} of {len(FEED_PANELS)}",
+        help=f"{fetched_now} fetched during this session; the rest read from the "
+             "cache shipped with the project. Both are genuine provider data.",
+    )
     summary[1].metric("Datasets cleaned", f"{len(data.reports)}")
     summary[2].metric(
         "Rows loaded",

@@ -196,3 +196,55 @@ class TestStaleBeatsSynthetic:
         """A loader growing a field must not silently stop being cached."""
         assert cache.is_live(("df", "live", None)) is True
         assert cache.is_live(("df", "sample", "429")) is False
+
+
+class TestCachedIsDistinguishedFromLive:
+    """
+    Offline, every feed reported "live" while every connection test failed.
+
+    Both statements were individually defensible — the data really was fetched
+    from the provider, just not during this session — but together they read as
+    a contradiction to anyone opening the project without a network, which is
+    how it is distributed. A cache hit is now labelled "cached".
+    """
+
+    def test_cache_hit_is_recorded(self, temp_cache):
+        cache.begin_load()
+        cache.cached("k", lambda: ("v", "live"), should_cache=cache.is_live)
+        assert not cache.was_cached("k"), "a fresh fetch was recorded as cached"
+
+        cache.begin_load()
+        cache.cached("k", lambda: ("v", "live"), should_cache=cache.is_live)
+        assert cache.was_cached("k"), "a cache hit was not recorded"
+
+    def test_begin_load_clears_previous_state(self, temp_cache):
+        cache.save("k", ("v", "live"))
+        cache.begin_load()
+        cache.cached("k", lambda: ("v", "live"))
+        assert cache.was_cached("k")
+        cache.begin_load()
+        assert not cache.was_cached("k")
+
+    def test_pipeline_labels_a_cached_load_as_cached(self, monkeypatch):
+        """A second load of the same window must not still claim to be live."""
+        import requests
+
+        config.CRYPTO_MODE = "simulated"
+        pipeline.load_market_data(days=90)          # warm
+
+        def blocked(*a, **k):
+            raise AssertionError("network used on a cached load")
+
+        monkeypatch.setattr(requests, "get", blocked)
+        monkeypatch.setattr(requests.Session, "get", blocked)
+        second = pipeline.load_market_data(days=90)
+
+        live_claims = [f for f, s in second.sources.items() if s == "live"]
+        assert not live_claims, f"claimed live with no network: {live_claims}"
+
+    def test_cached_is_not_treated_as_a_failure(self, monkeypatch):
+        """It is a success state: real data, read from disk."""
+        config.CRYPTO_MODE = "simulated"
+        pipeline.load_market_data(days=90)
+        second = pipeline.load_market_data(days=90)
+        assert all(s in ("live", "cached", "simulated") for s in second.sources.values())
