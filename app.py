@@ -19,7 +19,8 @@ import streamlit as st
 import config
 from src import pipeline
 from src.analysis import correlation, cycles, forecast, volatility
-from src.data import cache
+from src.data import cache, crypto, fx
+from src.ui import tab_datasets, tab_model
 from src.viz import charts
 
 st.set_page_config(page_title="Crypto Market Analysis System", layout="wide")
@@ -107,9 +108,28 @@ st.markdown(
 # --------------------------------------------------------------------------- #
 # Cached loaders
 # --------------------------------------------------------------------------- #
-@st.cache_data(show_spinner="Loading market data…", ttl=60 * 60)
+@st.cache_data(show_spinner=False, ttl=60 * 60)
 def get_data(days: int) -> pipeline.MarketData:
-    return pipeline.load_market_data(days)
+    """
+    Load every feed, reporting progress per coin.
+
+    A warm cache returns in a fraction of a second and the bar never appears.
+    A keyless cold fetch spaces six calls six seconds apart, so without this the
+    user stares at an unmoving spinner for half a minute and assumes it has hung
+    — which is exactly how this was reported as "the API is not connecting".
+    """
+    status = st.empty()
+    bar = st.progress(0.0)
+
+    def report(done: int, total: int, symbol: str) -> None:
+        bar.progress(done / total)
+        status.caption(f"Fetching market data… {done} of {total} ({symbol})")
+
+    try:
+        return pipeline.load_market_data(days, progress=report)
+    finally:
+        bar.empty()
+        status.empty()
 
 
 @st.cache_data(show_spinner="Fitting and validating ARIMA…", ttl=60 * 60)
@@ -120,6 +140,12 @@ def get_forecast(_price: pd.Series, symbol: str, horizon: int, days: int) -> for
     history window would return the forecast computed on the previous window.
     """
     return forecast.forecast_price(_price, symbol, horizon=horizon)
+
+
+@st.cache_data(show_spinner="Fitting GARCH(1,1)…", ttl=60 * 60)
+def get_garch(_price: pd.Series, symbol: str, days: int) -> volatility.GarchResult:
+    """Same cache-key discipline as get_forecast: ``days`` must be explicit."""
+    return volatility.fit_garch(_price, symbol)
 
 
 # --------------------------------------------------------------------------- #
@@ -148,6 +174,12 @@ st.sidebar.subheader("Data sources")
 for feed, source in data.sources.items():
     icon = {"live": "🟢", "simulated": "🔵", "mixed": "🟡", "sample": "🟠"}.get(source, "⚪")
     st.sidebar.write(f"{icon} {feed}: **{source}**")
+
+# A fallback tells you a fetch failed but not why. This makes one cheap,
+# uncached call and reports the actual state of the connection.
+if st.sidebar.button("Test CoinGecko connection", width="stretch"):
+    ok, message = crypto.check_connection()
+    (st.sidebar.success if ok else st.sidebar.error)(message)
 
 # A deliberate mode and an unplanned failure produce the same data but mean
 # different things, so they are surfaced differently: the first is stated once
@@ -179,22 +211,37 @@ if unexpected:
             "Any table comparing these against live assets is mixing measured and "
             "generated data."
         )
+    # The reason is the one thing worth knowing, and it used to reach the log
+    # only — where a dashboard user never sees it.
+    reasons = ""
+    if data.failure_reasons:
+        reasons = "\n\nReason: " + "; ".join(data.failure_reasons)
     st.warning(
         f"**A feed dropped unexpectedly** ({', '.join(unexpected)}). "
         "Generated data is standing in so every chart still renders. "
-        "Use **Refresh data** once you have a connection." + detail
+        "Use **Test CoinGecko connection** in the sidebar to diagnose, then "
+        "**Refresh data**." + detail + reasons
     )
 elif simulated_by_choice:
     st.caption(
-        "Crypto price series are generated rather than fetched — CoinGecko's free tier "
-        "rate limits below the six requests this dashboard needs. The generator carries "
+        "Crypto price series are generated rather than fetched, because "
+        "`CRYPTO_MODE` is set to `\"simulated\"` in `config.py`. The generator carries "
         "a realistic cross-asset correlation structure, so every metric below is computed "
-        "by the same code on the same shape of data. Set `CRYPTO_MODE = \"live\"` in "
-        "`config.py` to fetch instead. Macro, sentiment and on-chain feeds are live."
+        "by the same code on the same shape of data. Set `CRYPTO_MODE = \"live\"` to "
+        "fetch instead. Macro, sentiment and on-chain feeds are live."
     )
 
 tabs = st.tabs(
-    ["Overview", "Volatility & Risk", "Market Cycles", "Correlation", "Forecast", "Data & Sources"]
+    [
+        "Overview",
+        "Volatility & Risk",
+        "Market Cycles",
+        "Correlation",
+        "Forecast",
+        "Direction Model",
+        "Datasets",
+        "Data & Sources",
+    ]
 )
 
 # --------------------------------------------------------------------------- #
@@ -208,7 +255,10 @@ with tabs[0]:
     fng_label = data.sentiment["fng_label"].iloc[-1]
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric(f"{symbol} price", f"${latest:,.2f}", f"{change_24h:+.2%} (24h)")
+    # Never a hardcoded symbol: format_currency reads config.CURRENCY and applies
+    # that currency's own digit grouping. Indian grouping pairs digits above the
+    # final three, so 7456772 reads as 74,56,772 rather than 7,456,772.
+    c1.metric(f"{symbol} price", fx.format_currency(latest), f"{change_24h:+.2%} (24h)")
     c2.metric("30-day change", f"{change_30d:+.1%}")
     c3.metric("Annualised volatility", f"{volatility.annualised_volatility(price):.0%}")
     c4.metric("Fear & Greed", f"{fng_latest:.0f}", fng_label)
@@ -249,6 +299,50 @@ with tabs[1]:
 
     st.plotly_chart(charts.rolling_vol_chart(price, symbol), width="stretch")
     st.plotly_chart(charts.drawdown_chart(price, symbol), width="stretch")
+
+    # ----------------------------------------------------------------------- #
+    # GARCH(1,1)
+    #
+    # The rolling estimate above weights every day in its window equally and
+    # drops a shock in one step when it falls out of the far end. GARCH models
+    # the clustering directly, so it reacts faster and decays smoothly.
+    # ----------------------------------------------------------------------- #
+    st.markdown("---")
+    st.write("**Volatility clustering — GARCH(1,1)**")
+
+    garch = get_garch(price, symbol, days)
+
+    if not garch.converged:
+        st.info(
+            f"GARCH could not be fitted for {symbol}: {garch.message} "
+            "The rolling estimate above is unaffected."
+        )
+    else:
+        g = st.columns(4)
+        g[0].metric("Current (GARCH)", f"{garch.current_volatility:.0%}")
+        g[1].metric(
+            "Long-run level",
+            "—" if pd.isna(garch.long_run_volatility) else f"{garch.long_run_volatility:.0%}",
+        )
+        g[2].metric("Persistence (α+β)", f"{garch.persistence:.3f}")
+        g[3].metric("Reaction (α)", f"{garch.alpha:.3f}")
+
+        st.plotly_chart(
+            charts.garch_chart(
+                volatility.rolling_volatility(price), garch, symbol
+            ),
+            width="stretch",
+        )
+        st.caption(garch.verdict())
+
+        if garch.alpha < 0.02:
+            st.caption(
+                "α is close to zero, meaning the model finds almost no reaction "
+                "to individual shocks. On generated data that is the correct "
+                "answer rather than a failure: the simulator draws constant-"
+                "volatility returns, so there is no clustering present to detect. "
+                "Switch a feed to live to see α take a real value."
+            )
 
     with st.expander("What these metrics mean"):
         st.markdown(
@@ -344,18 +438,6 @@ with tabs[3]:
         "share — a Friday-to-Monday move spans the same three days for each."
     )
 
-    # A rate-limited provider returns the column empty rather than failing, and
-    # correlation needs every column on the same day. Dropping the dead asset
-    # keeps the rest of the matrix usable, but the reader has to be told which
-    # one is missing rather than silently seeing a smaller table.
-    excluded = [c for c in data.macro_prices.columns if c not in returns.columns]
-    if excluded:
-        st.warning(
-            f"Excluded from this analysis: **{', '.join(excluded)}** — the feed returned "
-            "too few observations over this window to correlate. Every other asset below "
-            "is unaffected. Try **Refresh data** in the sidebar to refetch."
-        )
-
     method = st.radio(
         "Correlation method",
         ["pearson", "spearman"],
@@ -393,25 +475,19 @@ with tabs[3]:
 
     st.markdown("---")
     st.write("**Rolling correlation**")
-    # Offer only assets that survived alignment — listing an excluded one would
-    # leave the user picking an option that silently renders nothing.
-    comparable = [c for c in data.macro_prices.columns if c in returns.columns]
-    if not comparable:
-        st.info("No traditional asset has enough overlapping data to plot against right now.")
-    else:
-        rc1, rc2 = st.columns(2)
-        macro_choice = rc1.selectbox("Compare against", comparable, index=0)
-        window = rc2.select_slider(
-            "Rolling window (days)", options=list(config.CORRELATION_WINDOWS), value=30
+    rc1, rc2 = st.columns(2)
+    macro_choice = rc1.selectbox("Compare against", list(data.macro_prices.columns), index=0)
+    window = rc2.select_slider(
+        "Rolling window (days)", options=list(config.CORRELATION_WINDOWS), value=30
+    )
+    if symbol in returns.columns and macro_choice in returns.columns:
+        series = correlation.rolling_correlation(returns, symbol, macro_choice, window)
+        st.plotly_chart(charts.rolling_corr_chart(series, symbol, macro_choice), width="stretch")
+        b = correlation.beta(returns, symbol, macro_choice)
+        st.caption(
+            f"β of {symbol} to {macro_choice}: **{b:.2f}**. Above 1 means {symbol} "
+            f"amplifies {macro_choice}'s moves rather than cushioning them."
         )
-        if symbol in returns.columns:
-            series = correlation.rolling_correlation(returns, symbol, macro_choice, window)
-            st.plotly_chart(charts.rolling_corr_chart(series, symbol, macro_choice), width="stretch")
-            b = correlation.beta(returns, symbol, macro_choice)
-            st.caption(
-                f"β of {symbol} to {macro_choice}: **{b:.2f}**. Above 1 means {symbol} "
-                f"amplifies {macro_choice}'s moves rather than cushioning them."
-            )
 
 # --------------------------------------------------------------------------- #
 # Tab 5 — Forecast
@@ -423,7 +499,12 @@ with tabs[4]:
 
     m = st.columns(4)
     m[0].metric("ARIMA order", str(result.order))
-    m[1].metric("RMSE", f"${result.rmse:,.0f}", f"naive ${result.naive_rmse:,.0f}", delta_color="off")
+    m[1].metric(
+        "RMSE",
+        fx.compact_currency(result.rmse),
+        f"naive {fx.compact_currency(result.naive_rmse)}",
+        delta_color="off",
+    )
     m[2].metric("MAPE", f"{result.mape:.2f}%", f"naive {result.naive_mape:.2f}%", delta_color="off")
     m[3].metric(
         "Skill vs random walk",
@@ -463,6 +544,21 @@ plausible outcomes rather than a price target.
 # Tab 6 — Data & Sources
 # --------------------------------------------------------------------------- #
 with tabs[5]:
+    tab_model.render(data, symbol, days)
+
+# --------------------------------------------------------------------------- #
+# Tab 7 — Datasets
+#
+# Lives in src/ui/tab_datasets.py so that tab and this file can be worked on
+# independently. app.py holds layout and wiring only.
+# --------------------------------------------------------------------------- #
+with tabs[6]:
+    tab_datasets.render(data, days)
+
+# --------------------------------------------------------------------------- #
+# Tab 8 — Data & Sources
+# --------------------------------------------------------------------------- #
+with tabs[7]:
     st.subheader("Sentiment")
     st.plotly_chart(charts.sentiment_chart(data.sentiment), width="stretch")
     st.caption(
@@ -492,10 +588,25 @@ with tabs[5]:
         ).set_index("Feed"),
         width="stretch",
     )
+    _auth = f"{config.COINGECKO_PLAN} key" if config.API_KEY else "keyless"
     st.caption(
         f"{cache.entry_count()} responses currently cached, valid for "
-        f"{config.CACHE_TTL_HOURS} hours. Crypto mode: **{config.CRYPTO_MODE}**."
+        f"{config.CACHE_TTL_HOURS} hours. Only successful fetches are cached, so a "
+        f"failed feed is retried on the next run rather than held for the full TTL. "
+        f"Crypto mode: **{config.CRYPTO_MODE}**, CoinGecko access: **{_auth}** "
+        f"({config.coingecko_base()})."
     )
+
+    if data.crypto_errors:
+        st.dataframe(
+            pd.DataFrame(
+                {
+                    "Coin": list(data.crypto_errors),
+                    "Why it fell back": list(data.crypto_errors.values()),
+                }
+            ).set_index("Coin"),
+            width="stretch",
+        )
 
     with st.expander(f"Raw {symbol} price and volume"):
         st.dataframe(crypto_df.tail(50), width="stretch")

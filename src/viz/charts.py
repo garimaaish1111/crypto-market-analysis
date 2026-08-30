@@ -344,3 +344,53 @@ def onchain_chart(onchain: pd.DataFrame) -> go.Figure:
         ),
     )
     return _base_layout(fig, "Bitcoin network activity", height=340)
+
+
+def garch_chart(rolling: pd.Series, garch, symbol: str) -> go.Figure:
+    """
+    Conditional volatility from GARCH(1,1) against the rolling estimate.
+
+    The two are deliberately drawn on one axis. The whole point is the contrast:
+    the rolling line steps and plateaus because every day in its window carries
+    equal weight, while the GARCH line reacts immediately to a shock and then
+    decays smoothly. Where they diverge is where the equal-weighting assumption
+    is costing the rolling estimate.
+    """
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Scatter(
+            x=rolling.index,
+            y=rolling,
+            name=f"Rolling {config.ROLLING_VOL_WINDOW}-day",
+            line=dict(color=config.SERIES_TERTIARY, width=1.4, dash="dot"),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=garch.conditional_volatility.index,
+            y=garch.conditional_volatility,
+            name="GARCH(1,1) conditional",
+            line=dict(color=config.ACCENT, width=2),
+        )
+    )
+    if not garch.forecast.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=garch.forecast.index,
+                y=garch.forecast,
+                name="GARCH forecast",
+                line=dict(color=config.ACCENT_DARK, width=2, dash="dash"),
+            )
+        )
+    if garch.is_stationary and pd.notna(garch.long_run_volatility):
+        fig.add_hline(
+            y=garch.long_run_volatility,
+            line=dict(color=config.SERIES_TERTIARY, width=1),
+            annotation_text="long-run level",
+            annotation_font_color=config.TEXT_MUTED,
+        )
+
+    fig = _base_layout(fig, f"Volatility clustering — {symbol}")
+    fig.update_yaxes(tickformat=".0%")
+    return fig

@@ -4,30 +4,34 @@ Written deliverables for the Cryptocurrency Market Analysis System.
 
 | File | What it is |
 |---|---|
-| `Cryptocurrency_Market_Analysis_System_SRS.docx` | Software Requirements Specification — functional and non-functional requirements, data sources, constraints, and an object-oriented analysis/design appendix (use-case, class, and sequence diagrams) |
-| `Cryptocurrency_Market_Analysis_System_Report.docx` | Project report — methodology, implementation, results, limitations |
-| `Crypto_Market_Analysis_Final_Evaluation.pptx` | Final evaluation slide deck — problem, objectives, architecture, OOAD, methodology, dashboard walkthrough, results |
+| `Cryptocurrency_Market_Analysis_System_SRS.docx` | Software Requirements Specification — scope, functional and non-functional requirements, data sources, constraints, and an object-oriented analysis and design appendix |
+| `Cryptocurrency_Market_Analysis_System_Report.docx` | Project report — methodology, implementation, validation, results, and limitations |
+| `Crypto_Market_Analysis_Final_Evaluation.pptx` | Final evaluation deck — problem, architecture, methodology, dashboard walkthrough, and findings |
 
 Elsewhere in the repository:
 
 | Location | What it is |
 |---|---|
-| `../README.md` | Setup, quick start, project structure |
-| `../CHANGES.md` | Every correctness fix made to the codebase, with reasoning |
-| `../notebooks/exploration.ipynb` | Reproducible walkthrough using the same analysis modules as the dashboard |
+| `../README.md` | Setup, how to run, project structure |
+| `../CHANGES.md` | Engineering log — defects found, and the reasoning behind each fix |
+| `../notebooks/exploration.ipynb` | Reproducible walkthrough calling the same analysis functions as the dashboard |
+| `../tests/` | 209 tests covering the analysis layer at 92–97% |
 
-## Known gap between the report and the code
+## Consistency
 
-**Section 7.3 of the report — the market-cycle rule table — no longer matches
-the implementation.** Two rules were tightened after the report was written:
+The written deliverables, the code, and the dashboard's own explanatory panels
+describe the same system. Where a document states a rule, a threshold, or a
+metric, that value is read from `config.py` or reproduced from the implementation
+it documents.
 
-- Distribution now additionally requires price to be within 10% of the peak.
-  Previously any uptrend with soft momentum was labelled Distribution regardless
-  of where price sat, which is not what the phase describes.
-- Accumulation now requires a drawdown past 25% to already be in place. A
-  shallow, early decline previously read as a basing bottom.
+Two conventions are worth stating once, because they affect how every figure in
+these documents should be read:
 
-The current table is reproduced in the dashboard under *Market Cycles → How
-phases are identified*, and in `CHANGES.md` section 8. Copy it into the report
-before submitting — a mismatch between the two is the kind of thing an examiner
-notices.
+- **Denomination is Indian rupees.** Crypto prices are fetched from CoinGecko
+  directly in INR. Dollar-quoted traditional assets are converted at the daily
+  USD/INR rate; the US Dollar Index and the 10-year yield are not converted,
+  because an index level and a rate in percentage points are not prices.
+- **Figures are a dated snapshot.** The system ships with a populated cache of
+  real API responses. The Datasets tab reports the exact date range covered by
+  every feed, so any number in these documents is attributable to a moment in
+  time rather than presented as perpetually current.

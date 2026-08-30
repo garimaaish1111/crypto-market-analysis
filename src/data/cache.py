@@ -46,13 +46,63 @@ def save(key: str, obj: Any) -> None:
         pass
 
 
-def cached(key: str, producer: Callable[[], Any], ttl_hours: float = config.CACHE_TTL_HOURS) -> Any:
-    """Return the cached value for ``key``, or compute, store, and return it."""
+def is_live(value: Any) -> bool:
+    """
+    Predicate for ``cached``: true when a loader returned real fetched data.
+
+    Loaders return ``(dataframe, source)`` where ``source`` is ``"live"`` on
+    success and ``"sample"`` when the fetch failed and generated data stood in.
+    Only the first is worth keeping.
+
+    The length check is ``>= 2`` rather than ``== 2`` deliberately. The crypto
+    loader returns a third element carrying *why* a coin fell back, and an exact
+    length check silently classified every one of its results as not-worth-
+    caching. It happens to pass its own predicate today, so nothing was broken —
+    but the next loader to grow a field would have had its cache quietly stop
+    working, with no error to notice.
+    """
+    return isinstance(value, tuple) and len(value) >= 2 and value[1] == "live"
+
+
+def cached(
+    key: str,
+    producer: Callable[[], Any],
+    ttl_hours: float = config.CACHE_TTL_HOURS,
+    should_cache: Callable[[Any], bool] | None = None,
+) -> Any:
+    """
+    Return the cached value for ``key``, or compute, store, and return it.
+
+    ``should_cache`` decides whether a freshly computed value is worth writing
+    to disk. Without it, a loader that failed and fell back to generated data
+    would store that fallback under the full six-hour TTL — so a momentary drop
+    in connectivity kept the dashboard on sample data long after the network
+    came back, and nothing short of the refresh button could dislodge it. Pass
+    ``is_live`` to persist successes only; failures are then retried on the very
+    next run.
+
+    **Stale beats synthetic.** If the producer fails and an *expired* response
+    for the same key is still on disk, that expired response is served instead
+    of the generated fallback. This project ships with a populated cache and is
+    read at an unknown later date, possibly on a machine with no network. Given
+    the choice between real data carrying an older date and invented data
+    carrying today's, real is the more honest thing to put in front of a reader
+    — and the Datasets tab states the date range of every feed, so nothing is
+    passed off as more current than it is.
+    """
     hit = load(key, ttl_hours)
     if hit is not None:
         return hit
+
     value = producer()
-    save(key, value)
+    if should_cache is None or should_cache(value):
+        save(key, value)
+        return value
+
+    # The producer fell back. Prefer a real-but-expired response if one exists.
+    stale = load(key, ttl_hours=float("inf"))
+    if stale is not None:
+        return stale
     return value
 
 

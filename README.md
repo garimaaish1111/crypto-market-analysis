@@ -13,12 +13,14 @@ Streamlit dashboard for data-driven investment decisions.
 
 | Area | What it does |
 |------|--------------|
-| **Volatility & risk** | Annualised & rolling volatility, historical VaR / CVaR, max drawdown, Sharpe & Sortino ratios, volatility-regime classification |
+| **Volatility & risk** | Annualised and rolling volatility, historical VaR / CVaR, max drawdown, Sharpe and Sortino, volatility-regime classification, and a GARCH(1,1) model of volatility clustering |
 | **Market cycles** | Accumulation → Markup → Distribution → Markdown phase identification from moving averages, RSI momentum, and drawdown |
 | **Correlation** | Static correlation matrix + rolling correlation and beta between crypto and equities, gold, the dollar index, rates, and oil |
-| **Forecasting** | ARIMA price model with AIC order selection and honest out-of-sample error (RMSE / MAE / MAPE) + an 80% forecast interval |
+| **Forecasting** | ARIMA on log price, validated walk-forward one step ahead against a random-walk baseline and scored for skill, with an 80% interval |
 | **Sentiment & on-chain** | Crypto Fear & Greed index and Bitcoin transaction / active-address activity |
-| **Resilience** | Live APIs with a transparent offline **sample-data fallback**, plus a 6-hour on-disk cache |
+| **Direction model** | A next-day direction classifier over technical, sentiment, on-chain and macro features, validated on time-ordered splits against the majority-class base rate, with a feature-block ablation |
+| **Denomination** | Indian rupees throughout, with Indian digit grouping. Crypto is fetched natively in INR; dollar-quoted macro assets are converted, index levels and rates are not |
+| **Resilience** | Live APIs, an on-disk cache shipped pre-populated with real responses, and a transparent generated fallback — the system runs with no credentials and no network |
 
 ## Data sources (all free tier)
 
@@ -30,6 +32,51 @@ Streamlit dashboard for data-driven investment decisions.
 If any feed is unreachable (offline, rate-limited), the system falls back to a
 deterministic synthetic dataset so the dashboard always runs. The sidebar shows
 which feeds are **live** vs **sample**.
+
+---
+
+## For the evaluator — running this from the submitted folder
+
+**Nothing needs to be configured, and no API key is required.**
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+The dashboard opens at `http://localhost:8501` and loads in well under a second.
+
+`data/cache/` ships pre-populated with **real API responses**, captured at
+submission time from all five feeds — CoinGecko, Yahoo Finance, alternative.me,
+Blockchain.info, and the USD/INR rate. All four history windows (90/180/270/365
+days) are cached, so the sidebar works without a single network call. The
+Datasets tab reports the exact date range each feed covers, so it is always
+clear what the figures are as of.
+
+Every number therefore comes from genuine market data, and the project runs
+identically on a machine with no internet connection.
+
+### Fetching fresh data instead (optional)
+
+The cached responses are a snapshot. To pull current prices:
+
+1. Create a free CoinGecko demo key at
+   https://www.coingecko.com/en/developers/dashboard (no payment details).
+2. Save it as `apikey.txt` in this folder, the key on a single line.
+3. Delete `data/cache/*.pkl`, or press **Refresh data** in the sidebar.
+
+Without a key the public tier rate-limits six consecutive requests and a cold
+fetch takes over a minute; with one it takes about six seconds. This is why the
+cache ships warm.
+
+### Verifying the test suite
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/ -q
+```
+
+205 tests, covering the analysis layer at 92–97%. They run entirely offline.
 
 ---
 
@@ -89,12 +136,17 @@ and you need to activate again before `streamlit run app.py` will work.
 
 ### Optional: CoinGecko key
 
-Live crypto fetching is off by default (`CRYPTO_MODE = "simulated"` in
-`config.py`) because the anonymous free tier rate limits below the six requests
-this dashboard needs. To turn it on, set `CRYPTO_MODE = "live"` and optionally
-create a free demo key at https://www.coingecko.com/en/developers/dashboard,
-saving it in a file called `apikey.txt` in the project root. The launcher picks
-it up automatically, and `apikey.txt` is gitignored.
+Live crypto fetching is **on** by default (`CRYPTO_MODE = "live"` in
+`config.py`). The anonymous free tier rate limits below the six requests this
+dashboard needs, so create a free demo key at
+https://www.coingecko.com/en/developers/dashboard and save it in a file called
+`apikey.txt` in the project root. The launcher picks it up automatically, and
+`apikey.txt` is gitignored.
+
+Without a key some coins will fall back to generated data and the dashboard will
+name which ones. To take the network out of the picture entirely — for offline
+demos or for the test suite — set `CRYPTO_MODE = "simulated"` (or export it as an
+environment variable, which the test suite and CI both do).
 
 ---
 

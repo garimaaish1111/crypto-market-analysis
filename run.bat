@@ -2,13 +2,28 @@
 cd /d "%~dp0"
 
 REM ------------------------------------------------------------------
-REM Optional CoinGecko demo key.
-REM Paste the key (and nothing else) into apikey.txt next to this file.
-REM Only needed if you set CRYPTO_MODE = "live" in config.py.
+REM Optional CoinGecko demo key. Strongly recommended.
+REM
+REM Without a key, six coins take roughly 30-40 seconds to load cold
+REM (public rate limit, throttled to avoid 429s). A free demo key drops
+REM that to a few seconds and mostly removes the throttling altogether.
+REM
+REM Get one free, no card needed, about two minutes:
+REM   https://www.coingecko.com/en/developers/dashboard
+REM Paste ONLY the key into a new file named apikey.txt in this same
+REM folder (next to run.bat), then run this script again.
 REM ------------------------------------------------------------------
 if exist "apikey.txt" (
     set /p COINGECKO_API_KEY=<apikey.txt
-    echo CoinGecko key loaded from apikey.txt
+    echo CoinGecko key loaded from apikey.txt - fast path enabled.
+) else (
+    echo.
+    echo No apikey.txt found - running keyless. Crypto data will still load,
+    echo just slower on a cold start. For a free demo key ^(~2 minutes^):
+    echo   1. https://www.coingecko.com/en/developers/dashboard
+    echo   2. Save the key alone, as text, in a new file: apikey.txt
+    echo   3. Re-run this script.
+    echo.
 )
 
 REM ------------------------------------------------------------------
