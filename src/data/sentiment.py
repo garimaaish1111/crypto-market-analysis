@@ -52,7 +52,7 @@ def load_sentiment(days: int = config.DEFAULT_DAYS) -> tuple[pd.DataFrame, str]:
             log.warning("Fear & Greed fetch failed (%s); using sample data", exc)
             return sample_data.fear_greed(days), "sample"
 
-    return cache.cached(key, _producer)
+    return cache.cached(key, _producer, should_cache=cache.is_live)
 
 
 def _fetch_onchain_metric(chart: str, days: int) -> pd.Series:
@@ -84,4 +84,4 @@ def load_onchain(days: int = config.DEFAULT_DAYS) -> tuple[pd.DataFrame, str]:
             log.warning("On-chain fetch failed (%s); using sample data", exc)
             return sample_data.onchain_btc(days), "sample"
 
-    return cache.cached(key, _producer)
+    return cache.cached(key, _producer, should_cache=cache.is_live)

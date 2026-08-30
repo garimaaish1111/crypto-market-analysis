@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.git/
+.github/
+data/cache/*.pkl
+apikey.txt
+docs/
+notebooks/
+*.zip
+.ipynb_checkpoints/

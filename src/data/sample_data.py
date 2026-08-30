@@ -75,6 +75,29 @@ def _seed_for(name: str, salt: int = 0) -> int:
     return (zlib.crc32(name.encode()) + _BASE_SEED + salt) % (2**32)
 
 
+def _currency_factor(asset: str | None = None) -> float:
+    """
+    Scale the generated anchors into the configured display currency.
+
+    The profile levels below are written in US dollars because that is how these
+    assets are quoted at source. When the dashboard runs in rupees the anchors
+    are multiplied by a fixed USD/INR rate so the generated market sits at a
+    plausible level on screen.
+
+    Only genuinely dollar-priced assets are scaled. The US Dollar Index is an
+    index level and the 10Y yield is a rate in percentage points, so both are
+    left alone -- the same rule the live path applies in ``fx.convert_macro``.
+
+    Because this multiplies a whole path by one constant, it changes no return
+    and therefore no volatility, VaR, drawdown, correlation or phase label.
+    """
+    if config.CURRENCY != "inr":
+        return 1.0
+    if asset is not None and asset not in config.USD_QUOTED_ASSETS:
+        return 1.0
+    return config.USD_INR_FALLBACK
+
+
 def _date_index(days: int) -> pd.DatetimeIndex:
     """Continuous daily index — crypto trades every day."""
     end = pd.Timestamp.today().normalize()
@@ -127,6 +150,8 @@ def _factor_gbm(
 def crypto_ohlcv(symbol: str, days: int = config.DEFAULT_DAYS) -> pd.DataFrame:
     """Return a price/volume/market-cap frame for one crypto symbol."""
     profile = dict(_CRYPTO_PROFILE.get(symbol, dict(latest=100, drift=0.3, vol=0.8, beta=0.8)))
+    # Crypto is priced in the display currency throughout, so every coin scales.
+    profile["latest"] = profile["latest"] * _currency_factor()
     idx = _date_index(days)
     _, crypto_factor = _factors(days)
 
@@ -162,7 +187,11 @@ def macro_prices(days: int = config.DEFAULT_DAYS) -> pd.DataFrame:
 
     out = {}
     for name, profile in _MACRO_PROFILE.items():
-        out[name] = _factor_gbm(factor=equity_factor, seed=_seed_for(name), **profile)
+        scaled = dict(profile)
+        # Only genuinely dollar-priced assets convert. The dollar index and the
+        # 10Y yield are not prices in dollars, so they keep their native level.
+        scaled["latest"] = scaled["latest"] * _currency_factor(name)
+        out[name] = _factor_gbm(factor=equity_factor, seed=_seed_for(name), **scaled)
 
     frame = pd.DataFrame(out, index=idx)
     return frame[frame.index.dayofweek < 5]

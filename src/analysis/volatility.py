@@ -12,6 +12,7 @@ day of the year.
 """
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -197,3 +198,160 @@ def risk_profile(symbol: str, price: pd.Series) -> RiskProfile:
         sortino=sortino_ratio(price),
         regime=volatility_regime(price),
     )
+
+
+# --------------------------------------------------------------------------- #
+# GARCH(1,1)
+#
+# Rolling standard deviation is what the metrics above use, and it has two
+# well-known weaknesses: every day inside the window carries equal weight, and a
+# large move stays in the estimate at full strength until it falls out of the
+# far end, then vanishes in one step. Realised crypto volatility does neither.
+# It clusters — a violent day makes the next day more likely to be violent — and
+# it decays smoothly.
+#
+# GARCH(1,1) models exactly that: tomorrow's variance is a weighted sum of a
+# long-run level, yesterday's surprise, and yesterday's variance. Two parameters
+# summarise the behaviour:
+#
+#   alpha  how sharply volatility reacts to a new shock
+#   beta   how long that shock persists
+#
+# alpha + beta is the persistence. Close to 1 means shocks decay slowly, which is
+# the normal finding for daily financial returns.
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class GarchResult:
+    """A fitted GARCH(1,1) and the pieces of it worth putting on screen."""
+
+    symbol: str
+    omega: float
+    alpha: float
+    beta: float
+
+    conditional_volatility: pd.Series   # annualised, aligned to the return index
+    forecast: pd.Series                 # annualised, forward-looking
+    converged: bool = True
+    message: str = ""
+
+    @property
+    def persistence(self) -> float:
+        """alpha + beta. At or above 1 the process has no finite long-run variance."""
+        return self.alpha + self.beta
+
+    @property
+    def is_stationary(self) -> bool:
+        return self.persistence < 1.0
+
+    @property
+    def long_run_volatility(self) -> float:
+        """Annualised unconditional volatility the process reverts to."""
+        if not self.is_stationary or self.omega <= 0:
+            return float("nan")
+        daily_variance = self.omega / (1 - self.persistence)
+        return float(np.sqrt(daily_variance) * np.sqrt(config.TRADING_DAYS) / 100)
+
+    @property
+    def current_volatility(self) -> float:
+        if self.conditional_volatility.empty:
+            return float("nan")
+        return float(self.conditional_volatility.iloc[-1])
+
+    def verdict(self) -> str:
+        """One line a non-technical reader can act on."""
+        if not self.converged:
+            return f"The GARCH fit did not converge: {self.message}"
+
+        current, long_run = self.current_volatility, self.long_run_volatility
+        if not np.isfinite(current):
+            return "No conditional volatility estimate is available."
+
+        if not self.is_stationary:
+            return (
+                f"Persistence is {self.persistence:.3f}, at or above 1, so shocks "
+                "do not decay and no long-run level exists. Read the conditional "
+                "series but not the mean reversion."
+            )
+
+        direction = "above" if current > long_run else "below"
+        return (
+            f"Volatility is currently {current:.0%}, {direction} its long-run level "
+            f"of {long_run:.0%}. Persistence is {self.persistence:.3f}: a shock "
+            f"today still carries {self.persistence ** 30:.0%} of its force in a month."
+        )
+
+
+def fit_garch(
+    price: pd.Series, symbol: str = "", horizon: int = 30
+) -> GarchResult:
+    """
+    Fit GARCH(1,1) to daily returns and project conditional volatility forward.
+
+    Returns are scaled by 100 before fitting. This is not cosmetic: daily returns
+    are order 0.01, their variance order 0.0001, and the optimiser converges
+    poorly on parameters that small. Everything is scaled back on the way out.
+
+    Never raises. If the fit fails the result carries ``converged=False`` and the
+    reason, so the dashboard can fall back to the rolling estimate rather than
+    losing the tab.
+    """
+    empty = pd.Series(dtype=float)
+
+    try:
+        from arch import arch_model
+    except ImportError:
+        return GarchResult(
+            symbol, float("nan"), float("nan"), float("nan"), empty, empty,
+            converged=False,
+            message="the `arch` package is not installed (pip install arch)",
+        )
+
+    rets = daily_returns(price).dropna() * 100
+    if len(rets) < 60:
+        return GarchResult(
+            symbol, float("nan"), float("nan"), float("nan"), empty, empty,
+            converged=False,
+            message=f"only {len(rets)} return observations; GARCH needs at least 60",
+        )
+
+    try:
+        with warnings.catch_warnings():
+            # Scoped, not global: statsmodels and arch both emit convergence
+            # chatter that would otherwise silence warnings process-wide.
+            warnings.simplefilter("ignore")
+            model = arch_model(rets, vol="GARCH", p=1, q=1, mean="Constant", dist="t")
+            fitted = model.fit(disp="off", show_warning=False)
+
+            params = fitted.params
+            omega = float(params.get("omega", float("nan")))
+            alpha = float(params.get("alpha[1]", float("nan")))
+            beta = float(params.get("beta[1]", float("nan")))
+
+            # Back to fractions, then annualised.
+            annualiser = np.sqrt(config.TRADING_DAYS) / 100
+            conditional = fitted.conditional_volatility * annualiser
+            conditional = pd.Series(np.asarray(conditional), index=rets.index)
+
+            projection = fitted.forecast(horizon=horizon, reindex=False)
+            variance = np.asarray(projection.variance.iloc[-1])
+            future_index = pd.date_range(
+                price.index[-1] + pd.Timedelta(days=1), periods=horizon, freq="D"
+            )
+            forward = pd.Series(np.sqrt(variance) * annualiser, index=future_index)
+
+        return GarchResult(
+            symbol=symbol,
+            omega=omega,
+            alpha=alpha,
+            beta=beta,
+            conditional_volatility=conditional,
+            forecast=forward,
+            converged=True,
+        )
+    except Exception as exc:  # noqa: BLE001 - a failed fit must not take the tab down
+        return GarchResult(
+            symbol, float("nan"), float("nan"), float("nan"), empty, empty,
+            converged=False, message=str(exc),
+        )

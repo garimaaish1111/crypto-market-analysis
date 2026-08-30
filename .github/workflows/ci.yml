@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 is the deployment target; 3.13 catches deprecations early.
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      # CRYPTO_MODE=simulated keeps CI off the network entirely: the suite is
+      # deterministic and never fails because a free-tier API rate-limited a
+      # build. The generator is verified reproducible across processes by
+      # tests/test_sample_data.py.
+      - name: Run tests
+        env:
+          CRYPTO_MODE: simulated
+        run: pytest tests/ -q --cov=src --cov=config --cov-report=term
+
+      - name: Check the app imports cleanly
+        env:
+          CRYPTO_MODE: simulated
+        run: python -m compileall -q app.py config.py src/
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t crypto-analysis .

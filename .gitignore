@@ -2,7 +2,28 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
-data/cache/*.pkl
-apikey.txt
 .DS_Store
 .ipynb_checkpoints/
+
+# Credentials. Never commit this — the repository is public.
+apikey.txt
+
+# Build and test artefacts
+.pytest_cache/
+.coverage
+htmlcov/
+*.zip
+
+# Internal coordination notes, kept local
+HANDOFF.md
+CONTRACT.md
+
+# data/cache/*.pkl is deliberately NOT ignored.
+#
+# Those files are real API responses captured at a known date, and they are what
+# lets the project start in a fraction of a second with no credentials and no
+# network — for anyone reading the repository, and for the deployed app on every
+# cold start. They contain public market data and no secrets.
+#
+# To refresh them: delete the directory's *.pkl files and run the app once with
+# a CoinGecko key present.
