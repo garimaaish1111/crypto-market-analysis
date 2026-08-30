@@ -19,7 +19,7 @@ import streamlit as st
 import config
 from src import pipeline
 from src.analysis import correlation, cycles, forecast, volatility
-from src.data import cache, crypto, fx
+from src.data import cache, fx
 from src.ui import tab_datasets, tab_model
 from src.viz import charts
 
@@ -175,12 +175,6 @@ for feed, source in data.sources.items():
     icon = {"live": "🟢", "simulated": "🔵", "mixed": "🟡", "sample": "🟠"}.get(source, "⚪")
     st.sidebar.write(f"{icon} {feed}: **{source}**")
 
-# A fallback tells you a fetch failed but not why. This makes one cheap,
-# uncached call and reports the actual state of the connection.
-if st.sidebar.button("Test CoinGecko connection", width="stretch"):
-    ok, message = crypto.check_connection()
-    (st.sidebar.success if ok else st.sidebar.error)(message)
-
 # A deliberate mode and an unplanned failure produce the same data but mean
 # different things, so they are surfaced differently: the first is stated once
 # and calmly, the second is flagged.
@@ -219,8 +213,8 @@ if unexpected:
     st.warning(
         f"**A feed dropped unexpectedly** ({', '.join(unexpected)}). "
         "Generated data is standing in so every chart still renders. "
-        "Use **Test CoinGecko connection** in the sidebar to diagnose, then "
-        "**Refresh data**." + detail + reasons
+        "Open the **Datasets** tab to test each feed individually and see what "
+        "failed, then use **Refresh data**." + detail + reasons
     )
 elif simulated_by_choice:
     st.caption(

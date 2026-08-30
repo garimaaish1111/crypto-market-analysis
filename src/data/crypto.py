@@ -258,56 +258,6 @@ def load_all_crypto(
         overall = "sample"
     return frames, overall, per_symbol, errors
 
-
-def check_connection() -> tuple[bool, str]:
-    """
-    Ping CoinGecko once and report what happened, in words.
-
-    This exists because "a feed dropped" is not a diagnosis. It bypasses the
-    cache and the retry loop so the answer is about the network as it is right
-    now, and it uses ``/ping`` rather than a coin so it costs one cheap call.
-
-    Every host in the returned message is wrapped in backticks. Streamlit renders
-    a bare URL as a clickable link, and the API base is not itself an endpoint —
-    following it returns ``{"error":"Incorrect path"}``, which reads as a failed
-    connection test immediately after the test has reported success.
-    """
-    base = config.coingecko_base()
-    key_state = (
-        f"{config.COINGECKO_PLAN} key" if config.API_KEY else "keyless (no API key)"
-    )
-    try:
-        resp = requests.get(
-            f"{base}/ping", headers=_headers(), timeout=config.REQUEST_TIMEOUT
-        )
-    except requests.Timeout:
-        return False, f"Timed out after {config.REQUEST_TIMEOUT}s reaching `{base}` — {key_state}."
-    except requests.ConnectionError:
-        return False, f"Could not reach `{base}` — no connection, DNS failure, or a firewall in the way."
-    except requests.RequestException as exc:
-        return False, f"Request failed: {exc}"
-
-    if resp.status_code == 200:
-        return True, f"Connected to `{base}/ping` using {key_state}."
-    if resp.status_code == 429:
-        return False, (
-            f"Rate limited (429) on `{base}` using {key_state}. "
-            "A free demo key raises the ceiling from roughly 10-30 calls a minute to 100."
-        )
-    if resp.status_code == 401:
-        return False, (
-            f"401 from `{base}` using {key_state}. Demo keys must go to api.coingecko.com "
-            "and Pro keys to pro-api.coingecko.com; check COINGECKO_PLAN matches your key."
-        )
-    if resp.status_code == 403:
-        return False, (
-            f"403 from `{base}` using {key_state}. This usually means a proxy, VPN or "
-            "corporate firewall is blocking the request rather than CoinGecko refusing it. "
-            "Open the URL in a browser to confirm."
-        )
-    return False, f"Unexpected {resp.status_code} from `{base}` using {key_state}."
-
-
 def close_price_matrix(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """Combine per-coin frames into a single price matrix (columns = symbols)."""
     prices = {sym: df["price"] for sym, df in frames.items()}
