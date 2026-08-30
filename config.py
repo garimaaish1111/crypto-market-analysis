@@ -181,6 +181,13 @@ FORECAST_HORIZON = 30         # days ahead for the ARIMA forecast
 FORECAST_TEST_FRACTION = 0.15
 STRESS_QUANTILE = 0.10        # worst 10% of benchmark days = "stressed"
 
+# A correlation computed on a handful of days is not a measurement, but it
+# renders identically to one computed on hundreds. On the 90-day window the
+# stressed bucket holds about seven observations, and reporting that to two
+# decimal places beside a 224-observation calm figure invites a comparison the
+# data cannot support. Below this count the regime split reports nothing.
+MIN_REGIME_OBSERVATIONS = 20
+
 # Correlation needs every column populated on the same day, so one dead feed can
 # empty the whole sample. A column carrying less than this fraction of the best-
 # covered column's observations is dropped instead of being allowed to do that.

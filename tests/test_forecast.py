@@ -159,3 +159,51 @@ class TestWarningScope:
             if stripped.startswith("warnings.filterwarnings"):
                 pytest.fail("filterwarnings called at module scope; use a context manager")
         assert "catch_warnings" in source
+
+
+class TestFallbackIsNotAnOracle:
+    """
+    The walk-forward fallback must never return the value of the day it is
+    predicting.
+
+    The original branch appended `test.loc[timestamp]` — the actual outcome of
+    the very day under prediction — behind a comment that said "persistence".
+    Persistence is the *previous* observation. Any step taking that branch would
+    have scored a zero-error prediction and inflated skill against the baseline.
+    It never fired on this data, which is precisely why it went unnoticed.
+    """
+
+    def test_fallback_returns_the_previous_value_not_the_current_one(self, monkeypatch):
+        idx = pd.date_range("2024-01-01", periods=8, freq="D")
+        train = pd.Series(np.log(np.linspace(100, 107, 8)), index=idx)
+        test_idx = pd.date_range("2024-01-09", periods=4, freq="D")
+        test = pd.Series(np.log([108.0, 130.0, 140.0, 150.0]), index=test_idx)
+
+        # Force every step down the fallback path.
+        class Boom:
+            def forecast(self, steps=1):
+                raise RuntimeError("forced")
+
+            def append(self, *a, **k):
+                raise RuntimeError("forced")
+
+        monkeypatch.setattr(forecast, "_fit_arima", lambda *a, **k: Boom())
+        preds = forecast._walk_forward(train, test, (0, 1, 1))
+
+        assert len(preds) == len(test)
+        # Every prediction must equal the last value the model had been shown,
+        # never the day's own value.
+        assert preds.iloc[0] == pytest.approx(train.iloc[-1])
+        for i in range(len(test)):
+            assert preds.iloc[i] != pytest.approx(test.iloc[i]), (
+                f"step {i} predicted the actual value of the day being predicted"
+            )
+
+    def test_source_does_not_index_test_at_the_predicted_timestamp(self):
+        """Guards against the exact expression being reintroduced."""
+        from pathlib import Path
+
+        source = (
+            Path(__file__).resolve().parent.parent / "src" / "analysis" / "forecast.py"
+        ).read_text(encoding="utf8")
+        assert "predictions.append(float(test.loc[timestamp]))" not in source

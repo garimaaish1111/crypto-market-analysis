@@ -118,13 +118,26 @@ def build_features(
 
 def build_target(price: pd.Series) -> pd.Series:
     """
-    1 if tomorrow closes above today, else 0.
+    1 if tomorrow closes above today, 0 if not, NaN where tomorrow is unknown.
 
     Shifting by -1 is what makes this a forecast rather than a description: row
     t carries the outcome of day t+1, so the model is never shown the day it is
     being asked about.
+
+    The final row has no tomorrow, and the naive expression for this label is
+    quietly wrong there. ``price.shift(-1)`` is NaN on the last row; ``NaN > x``
+    evaluates to False rather than propagating, and ``.astype(int)`` then turns
+    that False into a confident 0 — a "closed down" label for a day whose
+    outcome does not exist. Because the column is then free of NaN, no
+    downstream ``dropna`` removes it, and the fabricated label survives into a
+    scored test fold.
+
+    Comparing first and masking afterwards keeps the unknown day unknown, so the
+    caller's ``dropna`` drops it.
     """
-    return (price.shift(-1) > price).astype(int).rename("direction")
+    tomorrow = price.shift(-1)
+    direction = (tomorrow > price).astype(float)
+    return direction.mask(tomorrow.isna()).rename("direction")
 
 
 @dataclass

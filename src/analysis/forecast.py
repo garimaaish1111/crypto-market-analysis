@@ -138,15 +138,30 @@ def _walk_forward(train: pd.Series, test: pd.Series, order: tuple[int, int, int]
     model = _fit_arima(train, order)
     predictions: list[float] = []
 
+    # The most recent value the model has actually been shown. It starts at the
+    # end of training and advances only after a day has been revealed, so it is
+    # never the day currently being predicted.
+    last_observed = float(train.iloc[-1])
+
     for timestamp in test.index:
         try:
             predictions.append(float(model.forecast(steps=1).iloc[0]))
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 model = model.append(test.loc[[timestamp]], refit=False)
+            last_observed = float(test.loc[timestamp])
         except Exception:
-            # If the state update fails, fall back to persistence for this step.
-            predictions.append(float(test.loc[timestamp]))
+            # Fall back to persistence: the LAST OBSERVED value, never the value
+            # of the day being predicted.
+            #
+            # This previously appended test.loc[timestamp] — the actual outcome
+            # of the very day under prediction. That is a perfect oracle, not
+            # persistence, and any step that took this branch would have scored
+            # a zero-error prediction and inflated the model's skill against the
+            # baseline. The comment described the intent; the code did something
+            # else. It has never fired on this data, which is exactly why it
+            # survived unnoticed.
+            predictions.append(last_observed)
 
     return pd.Series(predictions, index=test.index)
 

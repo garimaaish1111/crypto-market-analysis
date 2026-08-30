@@ -1,6 +1,11 @@
-# Pinned to the versions this project was developed and tested against.
-# Unpinned ranges (`pandas>=2.0`) silently resolved to pandas 3.x, a major
-# version the code had never been run on — reproducible builds need exact pins.
+# Pinned to the exact versions this project was developed and tested against.
+#
+# These were previously open ranges (`pandas>=2.0`). That is not reproducible:
+# the same file resolved to a different pandas major version depending on when
+# it was installed, and the code was then running on a version nobody had
+# tested it against. Everything below is now pinned, and CI verifies the set
+# installs and passes on Python 3.12 and 3.13.
+#
 # Regenerate with: pip freeze > requirements.lock.txt
 
 # Core data / analysis

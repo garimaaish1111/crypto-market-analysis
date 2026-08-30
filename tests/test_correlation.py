@@ -217,3 +217,39 @@ class TestAlignment:
         returns = correlation.align_returns(crypto_prices, macro_prices)
         assert len(returns) < len(crypto_prices)
         assert len(returns) > 200
+
+
+class TestRegimeSampleGuard:
+    """
+    A correlation from seven observations renders identically to one from two
+    hundred. On the 90-day window the stressed bucket is about that size, and
+    printing it to two decimals beside the calm figure invites a comparison the
+    data cannot support.
+    """
+
+    @staticmethod
+    def _returns(n: int) -> pd.DataFrame:
+        rng = np.random.default_rng(3)
+        idx = pd.date_range("2024-01-01", periods=n, freq="D")
+        bench = rng.normal(0, 0.01, n)
+        return pd.DataFrame(
+            {"BTC": bench * 0.5 + rng.normal(0, 0.01, n), config.STRESS_BENCHMARK: bench},
+            index=idx,
+        )
+
+    def test_tiny_stressed_bucket_reports_nothing(self):
+        # 40 rows at a 10% quantile leaves ~4 stressed days.
+        result = correlation.regime_correlation(self._returns(40), "BTC")
+        assert np.isnan(result.stressed), "a correlation was reported from a handful of days"
+
+    def test_adequate_sample_still_reports(self):
+        result = correlation.regime_correlation(self._returns(400), "BTC")
+        assert np.isfinite(result.calm) and np.isfinite(result.stressed)
+
+    def test_threshold_is_configured_not_hardcoded(self):
+        assert config.MIN_REGIME_OBSERVATIONS >= 20
+
+    def test_nan_renders_as_a_dash_rather_than_a_number(self):
+        result = correlation.regime_correlation(self._returns(40), "BTC")
+        rendered = result.as_dict()
+        assert any(v == "—" for v in rendered.values())

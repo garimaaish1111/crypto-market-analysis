@@ -189,7 +189,17 @@ def regime_correlation(
     calm = sub[~stressed_mask]
 
     def safe_corr(frame: pd.DataFrame) -> float:
-        if len(frame) < 3:
+        """
+        Refuse to report a correlation the sample cannot support.
+
+        Three observations is enough to *compute* a coefficient and nowhere near
+        enough to mean anything. On a 90-day window the stressed bucket holds
+        about seven days, and a figure from seven points renders exactly like a
+        figure from two hundred — same two decimals, same table, no indication
+        that one is noise. Returning NaN below the threshold makes the interface
+        show an em dash instead, which is the honest rendering.
+        """
+        if len(frame) < config.MIN_REGIME_OBSERVATIONS:
             return float("nan")
         return float(frame[asset].corr(frame[benchmark]))
 

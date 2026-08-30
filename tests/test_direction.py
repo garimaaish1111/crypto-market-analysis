@@ -203,3 +203,49 @@ class TestAblation:
         table = direction.feature_block_ablation(features, target, "BTC")
         assert table["Base rate"].notna().all()
         assert np.allclose(table["Lift"], table["Accuracy"] - table["Base rate"])
+
+
+class TestNoFabricatedLabel:
+    """
+    The last row has no tomorrow, so it has no label.
+
+    `(price.shift(-1) > price).astype(int)` gets this wrong in a way that hides
+    itself: shift(-1) is NaN on the final row, `NaN > x` is False rather than
+    NaN, and astype(int) turns that False into a confident 0. The column then
+    contains no NaN, so no dropna removes it, and an invented "closed down"
+    label for a day that has not happened lands in a scored test fold.
+    """
+
+    def test_final_label_is_missing_not_zero(self):
+        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+        price = pd.Series([100.0, 101.0, 100.5, 102.0], index=idx)
+        target = direction.build_target(price)
+        assert pd.isna(target.iloc[-1]), "the last day was given an outcome it cannot have"
+
+    def test_earlier_labels_are_unaffected(self):
+        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+        price = pd.Series([100.0, 101.0, 100.5, 102.0], index=idx)
+        target = direction.build_target(price)
+        assert target.iloc[0] == 1   # 100.0 -> 101.0 rises
+        assert target.iloc[1] == 0   # 101.0 -> 100.5 falls
+        assert target.iloc[2] == 1   # 100.5 -> 102.0 rises
+
+    def test_flat_day_is_still_labelled_down(self):
+        """An unchanged close is not a rise, and must keep a real 0."""
+        idx = pd.date_range("2024-01-01", periods=3, freq="D")
+        target = direction.build_target(pd.Series([100.0, 100.0, 101.0], index=idx))
+        assert target.iloc[0] == 0
+        assert not pd.isna(target.iloc[0])
+
+    def test_final_day_is_excluded_from_the_modelling_sample(self, btc_price):
+        """dropna must now be able to remove it, which is the point of the fix."""
+        features = direction.build_features(btc_price)
+        target = direction.build_target(btc_price)
+        frame = features.join(target).dropna()
+        assert frame.index[-1] < btc_price.index[-1]
+
+    def test_no_fabricated_label_reaches_scoring(self, parts):
+        features, target = parts
+        scored = features.join(target).dropna()
+        assert scored["direction"].notna().all()
+        assert scored.index[-1] < target.index[-1]

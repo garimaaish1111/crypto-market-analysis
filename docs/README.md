@@ -15,7 +15,7 @@ Elsewhere in the repository:
 | `../README.md` | Setup, how to run, project structure |
 | `../CHANGES.md` | Engineering log — defects found, and the reasoning behind each fix |
 | `../notebooks/exploration.ipynb` | Reproducible walkthrough calling the same analysis functions as the dashboard |
-| `../tests/` | 209 tests covering the analysis layer at 92–97% |
+| `../tests/` | 220 tests covering the analysis layer at 92–97% |
 
 ## Consistency
 
