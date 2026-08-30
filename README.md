@@ -7,6 +7,8 @@ deliver **volatility & risk assessment**, **market-cycle phase identification**,
 and **digital-vs-traditional correlation analysis** — packaged in an interactive
 Streamlit dashboard for data-driven investment decisions.
 
+**Live: https://cryptomarketanalysis.streamlit.app**
+
 ---
 
 ## Features
@@ -32,6 +34,16 @@ Streamlit dashboard for data-driven investment decisions.
 If any feed is unreachable (offline, rate-limited), the system falls back to a
 deterministic synthetic dataset so the dashboard always runs. The sidebar shows
 which feeds are **live** vs **sample**.
+
+---
+
+## Live dashboard
+
+**https://cryptomarketanalysis.streamlit.app**
+
+Deployed from `master`. No setup, no credentials — the deployment serves the same
+cached snapshot the repository ships with, so it opens immediately and every feed
+reports the source it actually came from.
 
 ---
 
