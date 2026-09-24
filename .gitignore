@@ -27,3 +27,6 @@ CONTRACT.md
 #
 # To refresh them: delete the directory's *.pkl files and run the app once with
 # a CoinGecko key present.
+
+# Local editor/agent config
+.claude/
